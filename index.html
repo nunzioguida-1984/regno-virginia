@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Il Regno di Virginia</title>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Quicksand:wght@500;600;700&display=swap');
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useRef, useEffect, useCallback } = React;
+
+/* ============================================================
+   IL REGNO DI VIRGINIA — versione standalone per GitHub Pages
+   Stesso contenuto della versione Claude Artifact, con:
+   - window.storage sostituito da localStorage
+   - React caricato via CDN invece che fornito dall'ambiente
+   ============================================================ */
+
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+function playTone(freq, start, dur, type = "sine", gainPeak = 0.18) {
+  try {
+    const ctx = getCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+    gain.gain.exponentialRampToValueAtTime(gainPeak, ctx.currentTime + start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime + start);
+    osc.stop(ctx.currentTime + start + dur + 0.05);
+  } catch (e) {}
+}
+const Sound = {
+  correct: () => { playTone(660, 0, 0.12); playTone(880, 0.1, 0.18); },
+  wrong: () => { playTone(180, 0, 0.18, "sine", 0.12); },
+  exerciseDone: () => { [523, 659, 784, 1046].forEach((f, i) => playTone(f, i * 0.09, 0.16, "triangle", 0.16)); },
+  levelUp: () => { [392, 523, 659, 784, 1046, 1318].forEach((f, i) => playTone(f, i * 0.07, 0.22, "triangle", 0.17)); },
+  tap: () => { playTone(420, 0, 0.06, "sine", 0.08); },
+};
+function useSound(enabled) {
+  return useCallback((fn) => { if (enabled) fn(); }, [enabled]);
+}
+
+// ---------- STORAGE: localStorage al posto di window.storage ----------
+const storage = {
+  get: async (key) => {
+    try {
+      const value = localStorage.getItem(key);
+      return value ? { key, value } : null;
+    } catch (e) { return null; }
+  },
+  set: async (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+      return { key, value };
+    } catch (e) { return null; }
+  },
+};
+
+const EXERCISES = [
+  { id: "e01", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Taques negres a l'esquena i vestit color vermell, dues ales juganeres per volar com un ocell. Qui sóc?",
+    options: ["Una marieta", "Un peix", "Un gos", "Una abella"], answer: 0 },
+  { id: "e02", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Per dalt del cel jo vaig volant; sóc suau, tot i de color blanc. Qui sóc?",
+    options: ["Un avió", "Un núvol", "Un ocell", "Una estrella"], answer: 1 },
+  { id: "e03", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Llepa'm llepa'm sense parar. De molts gustots jo puc ser. Si al sol em fas estar, ben segur em desfaré. Qui sóc?",
+    options: ["Un gelat", "Un caramel", "Un xiclet", "Una pera"], answer: 0 },
+  { id: "e04", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Entro per les cases sense cap permís; a l'hivern m'accepten i a l'estiu, mal vist. Qui sóc?",
+    options: ["El vent", "El sol", "La pluja", "El fred"], answer: 1 },
+  { id: "e05", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Ho guardes a l'hivern, ho treus a l'estiu i per a fer un bany t'ho poses tu. Què sóc?",
+    options: ["El banyador", "L'abric", "La bufanda", "Les xancletes"], answer: 0 },
+  { id: "e06", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Sóc una fruita, gran i rodona. Tinc llavors i sóc verda i vermella. Qui sóc?",
+    options: ["Una poma", "Una síndria", "Un meló", "Una taronja"], answer: 1 },
+  { id: "e07", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Sóc de colors i em tapa del sol. La porto a la platja per no passar calor. Qui sóc?",
+    options: ["Una motxilla", "Una tovallola", "Una para-sol/ombrel·la", "Una gorra"], answer: 2 },
+  { id: "e08", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "Sóc pelut i marró. També dur de trencar. I, a l'estiu, no puc faltar. Qui sóc?",
+    options: ["Un coco", "Un cargol", "Una nou", "Un eriçó"], answer: 0 },
+  { id: "e09", cat: "endevinalles", type: "riddle", lang: "CA",
+    prompt: "L'omples de sorra, l'omples d'aigua, per a fer castells tot el dia a la platja. Què sóc?",
+    options: ["Un got", "Un cubell", "Una pala", "Un flotador"], answer: 1 },
+
+  { id: "p01", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "El cubo está lleno de arena.", options: ["🪣✨", "🪣🟤", "🪣"], answer: 1 },
+  { id: "p02", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "El niño construye un castillo de arena.", options: ["🏖️", "🏰", "⛵"], answer: 1 },
+  { id: "p03", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "El helado tiene 3 arándanos.", options: ["🍦🫐🫐🫐", "🍧", "🍦"], answer: 0 },
+  { id: "p04", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "El niño hace surf en la playa.", options: ["🏄", "🏊", "⚽"], answer: 0 },
+  { id: "p05", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "En la playa hay gaviotas.", options: ["🐦🐦", "🦩", "🏖️"], answer: 0 },
+  { id: "p06", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "El niño lleva gafas de sol.", options: ["🤿", "🕶️", "👒"], answer: 1 },
+  { id: "p07", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "El cangrejo está en la arena.", options: ["🦀🌊", "🦀🏖️", "🦀🌿"], answer: 1 },
+  { id: "p08", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "La sombrilla es blanca y azul.", options: ["⛱️ (blau)", "⛱️ (taronja)", "⛱️ (vermell)"], answer: 0 },
+  { id: "p09", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "La niña juega con la pelota.", options: ["🏊", "🏰", "🏐"], answer: 2 },
+  { id: "p10", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "La crema solar está fuera de la mochila.", options: ["🧴+🎒 (separats)", "🎒 (sol)", "🕶️+🎒"], answer: 0 },
+  { id: "p11", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "Las aletas están encima de la toalla.", options: ["🤿", "🏊‍♀️ (aletes)", "🛏️"], answer: 1 },
+  { id: "p12", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "El bañador tiene un estampado de flores.", options: ["🩱 (ratlles)", "🩱 (llis)", "🩱 (flors)"], answer: 2 },
+  { id: "p13", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "Las gafas de buceo están en la arena.", options: ["🥽🏖️", "🥽👧", "🪑"], answer: 0 },
+  { id: "p14", cat: "llegeix", type: "pick-img", lang: "ES",
+    prompt: "Las chanclas son de color rosa.", options: ["🩴 (verd)", "🩴 (rosa)", "🩴 (blau)"], answer: 1 },
+
+  { id: "o01", cat: "ordena", type: "order", lang: "ES", words: ["EL", "CANGREJO", "ES", "ROJO"], answer: ["EL", "CANGREJO", "ES", "ROJO"] },
+  { id: "o02", cat: "ordena", type: "order", lang: "ES", words: ["LA", "NIÑA", "HACE", "SURF"], answer: ["LA", "NIÑA", "HACE", "SURF"] },
+  { id: "o03", cat: "ordena", type: "order", lang: "ES", words: ["EL", "FLOTADOR", "ES", "ROSA"], answer: ["EL", "FLOTADOR", "ES", "ROSA"] },
+  { id: "o04", cat: "ordena", type: "order", lang: "ES", words: ["EL", "NIÑO", "BEBE", "LIMONADA"], answer: ["EL", "NIÑO", "BEBE", "LIMONADA"] },
+  { id: "o05", cat: "ordena", type: "order", lang: "ES", words: ["EL", "NIÑO", "ESTÁ", "JUGANDO"], answer: ["EL", "NIÑO", "ESTÁ", "JUGANDO"] },
+  { id: "o06", cat: "ordena", type: "order", lang: "ES", words: ["EL", "CUBO", "ESTÁ", "LLENO"], answer: ["EL", "CUBO", "ESTÁ", "LLENO"] },
+  { id: "o07", cat: "ordena", type: "order", lang: "ES", words: ["LAS", "GAFAS", "SON", "AMARILLAS"], answer: ["LAS", "GAFAS", "SON", "AMARILLAS"] },
+  { id: "o08", cat: "ordena", type: "order", lang: "ES", words: ["LA", "NIÑA", "JUEGA", "SOLA"], answer: ["LA", "NIÑA", "JUEGA", "SOLA"] },
+  { id: "o09", cat: "ordena", type: "order", lang: "ES", words: ["EL", "HELADO", "TIENE", "ARÁNDANOS"], answer: ["EL", "HELADO", "TIENE", "ARÁNDANOS"] },
+  { id: "o10", cat: "ordena", type: "order", lang: "ES", words: ["EL", "NIÑO", "LLEVA", "GAFAS"], answer: ["EL", "NIÑO", "LLEVA", "GAFAS"] },
+  { id: "o11", cat: "ordena", type: "order", lang: "ES", words: ["EL", "SOL", "BRILLA", "MUCHO"], answer: ["EL", "SOL", "BRILLA", "MUCHO"] },
+  { id: "o12", cat: "ordena", type: "order", lang: "ES", words: ["LA", "MEDUSA", "ES", "LILA"], answer: ["LA", "MEDUSA", "ES", "LILA"] },
+  { id: "o13", cat: "ordena", type: "order", lang: "ES", words: ["LA", "PELOTA", "TIENE", "RAYAS"], answer: ["LA", "PELOTA", "TIENE", "RAYAS"] },
+  { id: "o14", cat: "ordena", type: "order", lang: "ES", words: ["EL", "CASTILLO", "TIENE", "BANDERAS"], answer: ["EL", "CASTILLO", "TIENE", "BANDERAS"] },
+
+  { id: "m01", cat: "relaciona", type: "match-pairs", lang: "CA",
+    prompt: "Relaciona cada frase amb el seu dibuix",
+    pairs: [
+      { text: "L'Arlet està molt contenta perquè avui és el seu aniversari.", emoji: "🎂" },
+      { text: "La Martina va cada dia a l'escola en bicicleta.", emoji: "🚲" },
+      { text: "Aquesta nit aniré amb les meves germanes al cinema.", emoji: "🍿" },
+      { text: "Els dilluns i els dimecres en Roger juga a bàsquet.", emoji: "🏀" },
+      { text: "La Raquel surt dos cops al dia a passejar el seu gos.", emoji: "🐕" },
+      { text: "El que més li agrada fer a l'Oriol és llegir llibres d'aventures.", emoji: "📚" },
+    ] },
+  { id: "m02", cat: "relaciona", type: "match-pairs", lang: "CA",
+    prompt: "Relaciona cada frase amb el seu dibuix",
+    pairs: [
+      { text: "Aquest matí he anat al centre comercial i m'he comprat uns pantalons molt macos.", emoji: "👖" },
+      { text: "Per celebrar l'aniversari de la meva cosina anirem tota la família a un parc d'atraccions.", emoji: "🎡" },
+      { text: "Aquest any el meu millor amic i jo hem començat a fer natació després de l'escola.", emoji: "🏊" },
+      { text: "Cada diumenge esmorzo al meu balcó un suc de taronja.", emoji: "🧃" },
+      { text: "El balcó de la meva veïna m'agrada moltíssim perquè està ple de flors. És preciós!", emoji: "🌸" },
+      { text: "El que més m'agrada de l'estiu és anar a fer excursions a la muntanya amb el meu germà.", emoji: "⛰️" },
+    ] },
+
+  { id: "ord-ca01", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["EN", "CADA", "UNA", "ESTONA", "LLEGEIX", "DIA", "POL"], answer: ["EN", "POL", "LLEGEIX", "UNA", "ESTONA", "CADA", "DIA"] },
+  { id: "ord-ca02", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["SOFIA", "LA", "BÉ", "MOLT", "DIBUIXA"], answer: ["LA", "SOFIA", "DIBUIXA", "MOLT", "BÉ"] },
+  { id: "ord-ca03", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["VOL", "VIATJAR", "SERGI", "EN", "MÓN", "PER", "EL", "TOT"], answer: ["EN", "SERGI", "VOL", "VIATJAR", "PER", "TOT", "EL", "MÓN"] },
+  { id: "ord-ca04", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["MARIONA", "SER", "GRAN", "DE", "VOL", "CIENTÍFICA", "LA"], answer: ["LA", "MARIONA", "VOL", "SER", "CIENTÍFICA", "DE", "GRAN"] },
+  { id: "ord-ca05", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["BERTA", "LA", "AMB", "SEU", "GAT", "DORM", "EL"], answer: ["LA", "BERTA", "DORM", "AMB", "EL", "SEU", "GAT"] },
+  { id: "ord-ca06", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["HI", "CAIXA", "HA", "JOGUINES", "MOLTES", "CAIXA", "A", "LA"], answer: ["HI", "HA", "MOLTES", "JOGUINES", "A", "LA", "CAIXA"] },
+  { id: "ord-ca07", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["MARTINA", "EN", "BIEL", "I", "GERMANS", "LA", "SÓN"], answer: ["LA", "MARTINA", "I", "EN", "BIEL", "SÓN", "GERMANS"] },
+  { id: "ord-ca08", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["EN", "JORDI", "EL", "PIANO", "TOCA", "BÉ", "MOLT"], answer: ["EN", "JORDI", "TOCA", "MOLT", "BÉ", "EL", "PIANO"] },
+  { id: "ord-ca09", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["MEU", "PREFERIT", "ÉS", "EL", "GOS", "ANIMAL", "EL"], answer: ["EL", "MEU", "ANIMAL", "PREFERIT", "ÉS", "EL", "GOS"] },
+  { id: "ord-ca10", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["LA", "COMENÇAT", "DE", "PINTURA", "MARTINA", "HA", "CLASSES"], answer: ["LA", "MARTINA", "HA", "COMENÇAT", "CLASSES", "DE", "PINTURA"] },
+  { id: "ord-ca11", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["A", "BIEL", "EN", "LI", "AGRADA", "NO", "PEBROT", "EL"], answer: ["A", "EN", "BIEL", "NO", "LI", "AGRADA", "EL", "PEBROT"] },
+  { id: "ord-ca12", cat: "ordena-llargues", type: "order-plain", lang: "CA",
+    words: ["PERDUT", "HE", "AVUI", "LLAPIS", "EL", "L'ESCOLA", "A"], answer: ["AVUI", "HE", "PERDUT", "EL", "LLAPIS", "A", "L'ESCOLA"] },
+
+  { id: "draw01", cat: "dibuixa", type: "draw-instructions", lang: "CA",
+    title: "El menjador",
+    steps: [
+      "Dibuixa una cadira a cada punta de la taula.",
+      "Dibuixa un gat a sota la taula.",
+      "Dibuixa a sobre la taula un gerro amb flors grogues i blanques.",
+      "Pinta la taula de color marró.",
+      "Dibuixa dos coixins a sobre el sofà.",
+      "Dibuixa una catifa a sota el sofà.",
+      "Dibuixa a un costat del sofà una planta.",
+      "Dibuixa a l'altre costat del sofà una taula petita.",
+      "Pinta el dibuix dels colors que vulguis.",
+    ] },
+  { id: "draw02", cat: "dibuixa", type: "draw-instructions", lang: "CA",
+    title: "El plat i el jardí",
+    steps: [
+      "Dibuixa a l'esquerra del plat una forquilla.",
+      "Dibuixa a la dreta del plat un ganivet.",
+      "Dibuixa a prop del plat un got ple d'aigua.",
+      "Dibuixa el teu plat preferit dins del plat i després pinta-ho.",
+      "Dibuixa un altre arbre.",
+      "Dibuixa un sol i dos núvols sobre els arbres.",
+      "Dibuixa dues flors al costat d'un arbre.",
+      "Dibuixa una papallona sobre una flor.",
+      "Pinta el dibuix dels colors que vulguis.",
+    ] },
+  { id: "draw03", cat: "dibuixa", type: "draw-instructions", lang: "CA",
+    title: "El nen i la nau espacial",
+    steps: [
+      "Pinta la samarreta del nen de color verd.",
+      "Pinta els pantalons del nen de color blau marí.",
+      "Pinta dues estrelles de color groc i dues color taronja.",
+      "La portada del llibre és de color blau cel.",
+      "Pinta les sabates del nen de color marró i de color vermell.",
+      "Pinta la nau espacial de color rosa, taronja i verd.",
+      "Pinta la resta del dibuix com tu vulguis.",
+    ] },
+  { id: "draw04", cat: "dibuixa", type: "draw-instructions", lang: "CA",
+    title: "El sofà i la sala",
+    steps: [
+      "Dibuixa un gatet negre sobre el sofà.",
+      "Dibuixa un llibre sobre la taula.",
+      "Pinta la catifa de color groc.",
+      "Pinta la manta que hi ha sobre el sofà de color verd.",
+      "Pinta el gerro de color marró clar.",
+      "Pinta els cors dels quadres de color vermell.",
+      "Pinta la resta del dibuix com tu vulguis.",
+    ] },
+  { id: "draw05", cat: "dibuixa", type: "draw-instructions", lang: "CA",
+    title: "La casa i els arbres",
+    steps: [
+      "Dibuixa dues pomes en un arbre i tres pomes en l'altre arbre.",
+      "Pinta la teulada de la casa de color taronja.",
+      "Pinta la porta de la casa de color marró.",
+      "Dibuixa dos ocells volant sobre els arbres.",
+      "El gatet és blanc amb taques marrons i negres.",
+      "Dibuixa tres flors a l'arbust que hi ha al costat dels arbres.",
+      "Pinta la resta del dibuix com tu vulguis.",
+    ] },
+
+  { id: "fill01", cat: "omple", type: "fill-blank", lang: "CA",
+    bank: ["MISTERI", "FEBRE", "VETERINARI", "AVENTURES", "AVI", "CEREALS"],
+    sentences: [
+      { before: "El dissabte passat l'Àlex va marcar dos gols.", blank: null, isExample: true },
+      { before: "Crec que tinc ", blank: "FEBRE", after: " perquè no em trobo bé." },
+      { before: "He anat al ", blank: "VETERINARI", after: " perquè el meu gos s'ha fet mal." },
+      { before: "A la Mireia li agrada llegir llibres de ", blank: "MISTERI", after: "." },
+      { before: "El meu menjar preferit és la pizza que fa el meu ", blank: "AVI", after: "." },
+      { before: "Cada dia esmorzo llet amb ", blank: "CEREALS", after: "." },
+    ] },
+  { id: "fill02", cat: "omple", type: "fill-blank", lang: "CA",
+    bank: ["AUTOBÚS", "PANXA", "TEATRE", "GERMÀ", "EXCURSIÓ", "ULLERES"],
+    sentences: [
+      { before: "Avui he fet tard a l'escola perquè he perdut l'", blank: "AUTOBÚS", after: "." },
+      { before: "En Marc va al metge perquè li fa mal la ", blank: "PANXA", after: "." },
+      { before: "Demà aniré a veure una obra de ", blank: "TEATRE", after: " amb la meva cosina." },
+      { before: "El meu ", blank: "GERMÀ", after: " té un any i es diu Joan." },
+      { before: "Aquest cap de setmana he anat d'", blank: "EXCURSIÓ", after: " a la muntanya." },
+      { before: "No veig gaire bé, crec que necessito portar ", blank: "ULLERES", after: "." },
+    ] },
+
+  { id: "w01", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "La Laia té tos i mal de gola.",
+    questions: ["Què li passa a la Laia?", "Encercla la Laia. (entre les 3 imatges del quadern)", "Què li recomanes a la Laia perquè es millori?"] },
+  { id: "w02", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "La pilota petita és dins de la maleta.",
+    questions: ["Què hi ha dins de la maleta?", "Dibuixa la pilota petita al seu lloc.", "Quines altres joguines posaries dins de la maleta? Escriu-ne tres."] },
+  { id: "w03", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "Al gener aniré a esquiar als Pirineus.",
+    questions: ["On aniré a esquiar?", "En quina estació de l'any aniré a esquiar?", "Què porto posat quan estic esquiant?"] },
+  { id: "w04", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "L'àvia em va regalar deu euros.",
+    questions: ["Podria ser un regal en una ocasió especial? Quina?", "Observa la frase i les imatges. Qui o què són?", "Pinta el bitllet de deu euros."] },
+  { id: "w05", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "Tinc una càries al queixal.",
+    questions: ["Què la pot haver causat?", "A quin metge he de visitar?", "Quines mesures poden ajudar a no tenir càries?"] },
+  { id: "w06", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "En Max té els cabells rossos i llargs.",
+    questions: ["De quin color té els cabells en Max?", "Qui podria ser en Max? Encercla'l.", "Com tens tu els cabells?"] },
+  { id: "w07", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "Diumenge vaig anar amb els cosins d'excursió.",
+    questions: ["Amb qui vaig anar d'excursió?", "Quin dia és l'anterior al diumenge? Encercla'l. (Divendres / Dilluns / Dissabte)", "Quina excursió t'agradaria fer un diumenge?"] },
+  { id: "w08", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "He vist pallassos i mags al circ.",
+    questions: ["On he anat?", "Qui són?", "Quin d'aquests dos artistes fa riure més?"] },
+  { id: "w09", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "En Manel menja macarrons amb carn.",
+    questions: ["Com es diu el nen?", "Quins d'aquests dos plats menja?", "Creus que aquest plat l'ha menjat per esmorzar o per dinar?"] },
+  { id: "w10", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "El meu germà es diu Pere i la meva germana es diu Anna.",
+    questions: ["Qui és en Pere?", "Si en Pere porta una samarreta vermella i l'Anna porta una samarreta groga, qui és la Marina? Encercla-la.", "Quants germans som en total?"] },
+  { id: "w11", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "En Pau sempre llegeix abans d'anar a dormir.",
+    questions: ["Quan llegeix en Pau?", "Com es deu sentir en Pau quan agafa el conte i es posa a llegir?", "Quina és la teva rutina des que surts de l'escola fins que te'n vas a dormir?"] },
+  { id: "w12", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "El meu amic va demanar una pizza mitjana.",
+    questions: ["La pizza era petita? Com ho saps?", "Creus que la va comprar al supermercat o la va menjar al restaurant?", "Quins ingredients creus que pot tenir aquesta pizza? Observa la imatge i contesta."] },
+  { id: "w13", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "La Carla va plantar romaní i menta al jardí.",
+    questions: ["On es va plantar romaní?", "Quina imatge representa el romaní? (entre 3 plantes)", "Com distingiries la menta de l'àloe vera?"] },
+  { id: "w14", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "La meva gossa és molt trapella.",
+    questions: ["Qui és trapella?", "Quina paraula significa el mateix que trapella? (Dormilega / Entremaliada / Petita)", "Observa la foto de la gossa i descriu-la."] },
+  { id: "w15", cat: "llegeix-escriu", type: "trace-answer", lang: "CA",
+    sentence: "La Mar va fer una caseta de cartró per jugar.",
+    questions: ["Per a què serveix la caseta?", "Segons el que diu la frase, la Mar és una nena... (Creativa / Simpàtica / Responsable)", "Amb quins d'aquests adjectius t'identifiques tu?"] },
+
+  { id: "tf-img01", cat: "veritat-fals", type: "truefalse-img", lang: "CA",
+    scene: "🎂🎈",
+    items: [
+      { q: "Estan celebrant un aniversari?", a: true },
+      { q: "Hi ha 4 espelmes al pastís?", a: false },
+      { q: "Les espelmes són totes del mateix color?", a: false },
+    ] },
+  { id: "tf-img02", cat: "veritat-fals", type: "truefalse-img", lang: "CA",
+    scene: "🏫",
+    items: [
+      { q: "Estan en un restaurant?", a: false },
+      { q: "Hi ha molta gent?", a: true },
+      { q: "Estan fent una exposició?", a: true },
+    ] },
+  { id: "tf-img03", cat: "veritat-fals", type: "truefalse-img", lang: "CA",
+    scene: "📖☕🎃",
+    items: [
+      { q: "Hi ha una carbassa?", a: true },
+      { q: "Hi ha una tassa?", a: true },
+      { q: "El llibre està tancat?", a: false },
+      { q: "Hi ha dues fulles?", a: false },
+    ] },
+  { id: "tf-img04", cat: "veritat-fals", type: "truefalse-img", lang: "CA",
+    scene: "🎒🧒🧒🧒🧒",
+    items: [
+      { q: "Hi ha 4 nens i nenes?", a: true },
+      { q: "Tots i totes porten motxilla?", a: true },
+      { q: "Estan a la platja?", a: false },
+      { q: "És estiu?", a: true },
+    ] },
+  { id: "tf-img05", cat: "veritat-fals", type: "truefalse-img", lang: "CA",
+    scene: "🧑‍🤝‍🧑",
+    items: [
+      { q: "Hi ha 4 nens i nenes?", a: true },
+      { q: "Estan abraçats?", a: true },
+      { q: "Estan a la platja?", a: false },
+      { q: "És estiu?", a: false },
+    ] },
+  { id: "tf-img06", cat: "veritat-fals", type: "truefalse-img", lang: "CA",
+    scene: "🌳🦓🦓",
+    items: [
+      { q: "Hi ha un arbre gran?", a: true },
+      { q: "Hi ha dues zebres?", a: true },
+      { q: "Estan a la platja?", a: false },
+      { q: "És estiu?", a: false },
+    ] },
+  { id: "tf-img07", cat: "veritat-fals", type: "truefalse-img", lang: "CA",
+    scene: "🌅🦒🦒",
+    items: [
+      { q: "Hi ha tres animals?", a: true },
+      { q: "Hi ha dues girafes?", a: true },
+      { q: "Hi ha molts ocells?", a: false },
+      { q: "Hi ha un rinoceront?", a: true },
+    ] },
+
+  { id: "tf-text01", cat: "veritat-fals-text", type: "truefalse-text", lang: "CA",
+    title: "Al pati",
+    story: "A l'escola, els alumnes juguen junts al pati després de la classe.",
+    items: [
+      { q: "Els alumnes juguen junts al pati?", a: true },
+      { q: "Juguen abans de classe?", a: false },
+      { q: "A l'escola hi ha un pati?", a: true },
+      { q: "Els alumnes juguen sols al pati?", a: false },
+    ] },
+  { id: "tf-text02", cat: "veritat-fals-text", type: "truefalse-text", lang: "CA",
+    title: "L'aniversari de la Mar",
+    story: "Un grup d'amics i amigues va ser convidat a l'aniversari de la Mar. Van portar globus, pastís i jocs divertits. Tots i totes van ballar, riure i celebrar fins que va arribar l'hora de dir adeu, i cadascú va anar a casa seva a dinar.",
+    items: [
+      { q: "Era l'aniversari de la Mar?", a: true },
+      { q: "Van portar globus?", a: true },
+      { q: "Van estar a l'aniversari fins a l'hora de sopar?", a: false },
+    ] },
+
+  { id: "story01", cat: "lectura-llarga", type: "story-mc", lang: "CA",
+    title: "El pati de l'escola",
+    story: "Cada dia, després de la classe, els nens i nenes surten al pati. Al pati hi ha gronxadors i tobogans. Els alumnes juguen junts i juntes i es diverteixen molt. Quan sona el timbre, tornen a la classe contents i contentes.",
+    questions: [
+      { q: "Què hi ha al pati?", options: ["Gronxadors i tobogans", "Pilotes i bicicletes", "Cotxes i motos"], answer: 0 },
+      { q: "Quan tornen a la classe?", options: ["Quan acaba el pati", "Quan sona el timbre", "Quan ho diu la mestra"], answer: 1 },
+      { q: "Com se senten els nens quan tornen a la classe?", options: ["Tristos", "Cansats", "Contents"], answer: 2 },
+    ] },
+  { id: "story02", cat: "lectura-llarga", type: "story-mc", lang: "CA",
+    title: "La classe de música",
+    story: "Cada dijous, els nens i nenes de primer tenen classe de música. La mestra els ensenya cançons i a tocar instruments. A tots i totes els agrada molt tocar el tambor i cantar junts i juntes. Quan acaben la classe, guarden els instruments i se'n van contents i contentes a l'aula.",
+    questions: [
+      { q: "Quin dia tenen classe de música?", options: ["Dimecres", "Dijous", "Dilluns"], answer: 1 },
+      { q: "Què els ensenya la mestra?", options: ["A ballar", "A tocar instruments i cançons", "A llegir"], answer: 1 },
+      { q: "Quin instrument els agrada tocar?", options: ["La flauta", "El piano", "El tambor"], answer: 2 },
+      { q: "Com se senten quan acaben la classe?", options: ["Cansats", "Contents", "Tristos"], answer: 1 },
+    ] },
+  { id: "story03", cat: "lectura-llarga", type: "story-mc", lang: "CA",
+    title: "A la classe de primer",
+    story: "A l'escola, els nens i nenes de primer comencen el dia a la seva classe. Hi ha molts llibres i joguines a l'aula. La mestra, la Marta, els ensenya a llegir i a escriure. Quan toca el timbre, surten al pati a jugar. Els agrada molt l'hora del pati!",
+    questions: [
+      { q: "Qui és la mestra de la classe de primer?", options: ["La Maria", "La Marta", "La Laura"], answer: 1 },
+      { q: "Què hi ha a l'aula?", options: ["Joguines i llibres", "Llibres i ordinadors", "Joguines i ordinadors"], answer: 0 },
+      { q: "Quan surten al pati?", options: ["Quan acaben els deures", "Quan toca el timbre", "Quan la Marta ho diu"], answer: 1 },
+      { q: "Què els agrada molt als nens i nenes?", options: ["L'hora del pati", "L'hora de dinar", "L'hora de música"], answer: 0 },
+    ] },
+];
+
+const CATEGORIES = [
+  { id: "endevinalles", name: "Endevinalles", emoji: "🔮", color: "#7C3AED", glow: "#C4B5FD" },
+  { id: "llegeix", name: "Llegeix i tria", emoji: "🏖️", color: "#0EA5A8", glow: "#99F6E4" },
+  { id: "ordena", name: "Ordena (curt)", emoji: "🧩", color: "#16A34A", glow: "#BBF7D0" },
+  { id: "relaciona", name: "Relaciona", emoji: "🌉", color: "#F472B6", glow: "#FBCFE8" },
+  { id: "ordena-llargues", name: "Ordena (llarg)", emoji: "📝", color: "#16A34A", glow: "#BBF7D0" },
+  { id: "dibuixa", name: "Llegeix i dibuixa", emoji: "🖍️", color: "#C2410C", glow: "#FED7AA" },
+  { id: "omple", name: "Omple els buits", emoji: "🗳️", color: "#0891B2", glow: "#A5F3FC" },
+  { id: "llegeix-escriu", name: "Llegeix i escriu", emoji: "🪶", color: "#C2410C", glow: "#FED7AA" },
+  { id: "veritat-fals", name: "Veritat o fals", emoji: "🗝️", color: "#FB923C", glow: "#FED7AA" },
+  { id: "veritat-fals-text", name: "Veritat o fals (text)", emoji: "📜", color: "#FB923C", glow: "#FED7AA" },
+  { id: "lectura-llarga", name: "Lectura llarga", emoji: "🏰", color: "#7C3AED", glow: "#DDD6FE" },
+];
+
+const LANG_BADGE = { CA: { label: "CAT", color: "#7C3AED" }, ES: { label: "ESP", color: "#DC2626" } };
+const STORAGE_KEY = "il-regno-di-virginia-progress";
+
+const HEAVY_TYPES = new Set(["trace-answer", "story-mc", "draw-instructions", "fill-blank"]);
+function buildAlternatingPath(exercises) {
+  const light = exercises.filter((e) => !HEAVY_TYPES.has(e.type));
+  const heavy = exercises.filter((e) => HEAVY_TYPES.has(e.type));
+  const result = [];
+  let li = 0, hi = 0;
+  while (li < light.length || hi < heavy.length) {
+    for (let k = 0; k < 3 && li < light.length; k++) result.push(light[li++]);
+    if (hi < heavy.length) result.push(heavy[hi++]);
+  }
+  return result;
+}
+const ORDERED_EXERCISES = buildAlternatingPath(EXERCISES);
+
+function IlRegnoDiVirginia() {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [completed, setCompleted] = useState({});
+  const [stars, setStars] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(null);
+  const [soundOn, setSoundOn] = useState(true);
+  const playSound = useSound(soundOn);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await storage.get(STORAGE_KEY);
+        if (res?.value) {
+          const data = JSON.parse(res.value);
+          setCompleted(data.completed || {});
+          setStars(data.stars || 0);
+          setCurrentIndex(data.currentIndex || 0);
+        }
+      } catch (e) {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  const saveProgress = useCallback(async (newCompleted, newStars, newIndex) => {
+    try { await storage.set(STORAGE_KEY, JSON.stringify({ completed: newCompleted, stars: newStars, currentIndex: newIndex })); }
+    catch (e) { console.error("Errore salvataggio:", e); }
+  }, []);
+
+  const currentExercise = ORDERED_EXERCISES[currentIndex];
+  const totalDone = Object.keys(completed).length;
+
+  const handleExerciseComplete = (earnedStar) => {
+    const exId = currentExercise.id;
+    const newCompleted = { ...completed, [exId]: true };
+    const newStars = earnedStar ? stars + 1 : stars;
+    const prevLevel = Math.min(7, 1 + Math.floor(stars / 6));
+    const newLevel = Math.min(7, 1 + Math.floor(newStars / 6));
+    setCompleted(newCompleted);
+    setStars(newStars);
+    if (newLevel > prevLevel) { playSound(Sound.levelUp); setShowCelebration("level"); }
+    else { playSound(Sound.exerciseDone); setShowCelebration("exercise"); }
+    setTimeout(() => {
+      setShowCelebration(null);
+      const nextIndex = Math.min(currentIndex + 1, ORDERED_EXERCISES.length - 1);
+      setCurrentIndex(nextIndex);
+      saveProgress(newCompleted, newStars, nextIndex);
+    }, newLevel > prevLevel ? 2200 : 1400);
+  };
+
+  const goToIndex = (idx) => { setCurrentIndex(idx); saveProgress(completed, stars, idx); };
+  const resetProgress = async () => { setCompleted({}); setStars(0); setCurrentIndex(0); await saveProgress({}, 0, 0); };
+
+  const level = Math.min(7, 1 + Math.floor(stars / 6));
+  const isLastExercise = currentIndex === ORDERED_EXERCISES.length - 1;
+  const allDone = totalDone === ORDERED_EXERCISES.length;
+
+  if (!loaded) {
+    return (
+      <div style={styles.loadingScreen}>
+        <div style={styles.loadingSpinner}>🏰</div>
+        <p style={{ fontFamily: "Quicksand, sans-serif", color: "#7C3AED", fontWeight: 700 }}>Apertura del regno...</p>
+      </div>
+    );
+  }
+
+  if (allDone) {
+    return (
+      <div style={styles.app}>
+        <FinalScreen stars={stars} onReset={resetProgress} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.app}>
+      <p style={styles.appTitle}>👑 Il Regno di Virginia 👑</p>
+      <TopBar stars={stars} level={level} totalDone={totalDone} totalExercises={ORDERED_EXERCISES.length} soundOn={soundOn} onToggleSound={() => setSoundOn((s) => !s)} />
+      <PathStrip exercises={ORDERED_EXERCISES} completed={completed} currentIndex={currentIndex} onJump={goToIndex} />
+      <ExerciseStage key={currentExercise.id} exercise={currentExercise} isDone={!!completed[currentExercise.id]} isLast={isLastExercise} onComplete={handleExerciseComplete} playSound={playSound} />
+      {showCelebration === "exercise" && <BurstCelebration emoji="⭐" />}
+      {showCelebration === "level" && <LevelUpCelebration level={level} />}
+      <button onClick={resetProgress} style={styles.resetButton}>Ricomincia il regno</button>
+    </div>
+  );
+}
+
+function TopBar({ stars, level, totalDone, totalExercises, soundOn, onToggleSound }) {
+  return (
+    <div style={styles.topBar}>
+      <div style={styles.topBarRow}>
+        <div style={styles.avatarRow}>
+          <div style={styles.avatarCircle}>👸</div>
+          <div>
+            <p style={styles.greetName}>Virginia</p>
+            <p style={styles.greetSub}>Livello {level} di 7</p>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={onToggleSound} style={styles.soundButton}>{soundOn ? "🔊" : "🔇"}</button>
+          <div style={styles.starsPill}><span style={{ fontSize: 16 }}>⭐</span><span style={styles.starsPillNum}>{stars}</span></div>
+        </div>
+      </div>
+      <div style={styles.levelBarOuter}><div style={{ ...styles.levelBarInner, width: `${(totalDone / totalExercises) * 100}%` }} /></div>
+      <p style={styles.levelBarLabel}>{totalDone} / {totalExercises} esercizi completati</p>
+    </div>
+  );
+}
+
+function PathStrip({ exercises, completed, currentIndex, onJump }) {
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    if (scrollRef.current) {
+      const activeEl = scrollRef.current.querySelector(`[data-idx="${currentIndex}"]`);
+      if (activeEl) activeEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }
+  }, [currentIndex]);
+  return (
+    <div style={styles.pathStripOuter} ref={scrollRef}>
+      <div style={styles.pathStripInner}>
+        {exercises.map((ex, idx) => {
+          const cat = CATEGORIES.find((c) => c.id === ex.cat);
+          const isDone = completed[ex.id];
+          const isCurrent = idx === currentIndex;
+          const isLocked = idx > currentIndex && !isDone;
+          return (
+            <React.Fragment key={ex.id}>
+              <button data-idx={idx} onClick={() => { if (!isLocked) onJump(idx); }} disabled={isLocked}
+                style={{ ...styles.pathNode, background: isDone ? "#FBBF24" : isCurrent ? cat.color : "#E9E4F5", color: isDone || isCurrent ? "white" : "#B9AEDC", transform: isCurrent ? "scale(1.18)" : "scale(1)", cursor: isLocked ? "default" : "pointer", boxShadow: isCurrent ? `0 0 0 4px ${cat.glow}` : "none" }}>
+                {isDone ? "✓" : isLocked ? "🔒" : cat.emoji}
+              </button>
+              {idx < exercises.length - 1 && <div style={{ ...styles.pathConnector, background: isDone ? "#FBBF24" : "#E9E4F5" }} />}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ExerciseStage({ exercise, isDone, isLast, onComplete, playSound }) {
+  const cat = CATEGORIES.find((c) => c.id === exercise.cat);
+  const badge = exercise.lang ? LANG_BADGE[exercise.lang] : null;
+  return (
+    <div style={styles.stage}>
+      <div style={{ ...styles.stageBanner, background: `linear-gradient(135deg, ${cat.color}, ${cat.glow})` }}>
+        <span style={styles.stageBannerEmoji}>{cat.emoji}</span>
+        <span style={styles.stageBannerTitle}>{cat.name}</span>
+        {badge && <span style={{ ...styles.langBadgeSmall, background: badge.color }}>{badge.label}</span>}
+      </div>
+      <div style={styles.stageCard}>
+        {exercise.type === "riddle" && <RiddleExercise exercise={exercise} onComplete={onComplete} playSound={playSound} />}
+        {exercise.type === "pick-img" && <PickImgExercise exercise={exercise} onComplete={onComplete} playSound={playSound} />}
+        {exercise.type === "order" && <OrderExercise exercise={exercise} onComplete={onComplete} playSound={playSound} plain={false} />}
+        {exercise.type === "order-plain" && <OrderExercise exercise={exercise} onComplete={onComplete} playSound={playSound} plain={true} />}
+        {exercise.type === "match-pairs" && <MatchPairsExercise exercise={exercise} onComplete={onComplete} playSound={playSound} />}
+        {exercise.type === "fill-blank" && <FillBlankExercise exercise={exercise} onComplete={onComplete} playSound={playSound} />}
+        {exercise.type === "draw-instructions" && <DrawInstructionsExercise exercise={exercise} onComplete={onComplete} isDone={isDone} />}
+        {exercise.type === "trace-answer" && <TraceAnswerExercise exercise={exercise} onComplete={onComplete} isDone={isDone} />}
+        {exercise.type === "truefalse-img" && <TrueFalseImgExercise exercise={exercise} onComplete={onComplete} playSound={playSound} />}
+        {exercise.type === "truefalse-text" && <TrueFalseTextExercise exercise={exercise} onComplete={onComplete} playSound={playSound} />}
+        {exercise.type === "story-mc" && <StoryMcExercise exercise={exercise} onComplete={onComplete} playSound={playSound} />}
+      </div>
+      {isLast && isDone && <p style={styles.lastNote}>🎉 Ultimo esercizio del quaderno completato!</p>}
+    </div>
+  );
+}
+
+function RiddleExercise({ exercise, onComplete, playSound }) {
+  const [selected, setSelected] = useState(null);
+  const [result, setResult] = useState(null);
+  const choose = (idx) => {
+    if (result === "correct") return;
+    setSelected(idx);
+    const correct = idx === exercise.answer;
+    setResult(correct ? "correct" : "wrong");
+    if (correct) { playSound(Sound.correct); onComplete(true); } else playSound(Sound.wrong);
+  };
+  return (
+    <>
+      <p style={styles.eyebrow}>Indovinello — Qui sóc?</p>
+      <p style={styles.promptText}>{exercise.prompt}</p>
+      <div style={styles.optionsColumn}>
+        {exercise.options.map((opt, idx) => (
+          <button key={idx} onClick={() => choose(idx)} style={{ ...styles.optionButton, ...(selected === idx && result === "correct" ? styles.optionCorrect : {}), ...(selected === idx && result === "wrong" ? styles.optionWrong : {}) }}>{opt}</button>
+        ))}
+      </div>
+      <FeedbackLine result={result} />
+    </>
+  );
+}
+
+function PickImgExercise({ exercise, onComplete, playSound }) {
+  const [selected, setSelected] = useState(null);
+  const [result, setResult] = useState(null);
+  const choose = (idx) => {
+    if (result === "correct") return;
+    setSelected(idx);
+    const correct = idx === exercise.answer;
+    setResult(correct ? "correct" : "wrong");
+    if (correct) { playSound(Sound.correct); onComplete(true); } else playSound(Sound.wrong);
+  };
+  return (
+    <>
+      <p style={styles.eyebrow}>Lee la frase y elige la imagen correcta</p>
+      <p style={styles.promptText}>{exercise.prompt}</p>
+      <div style={styles.emojiRow}>
+        {exercise.options.map((opt, idx) => (
+          <button key={idx} onClick={() => choose(idx)} style={{ ...styles.emojiButtonWide, ...(selected === idx && result === "correct" ? styles.optionCorrect : {}), ...(selected === idx && result === "wrong" ? styles.optionWrong : {}) }}>{opt}</button>
+        ))}
+      </div>
+      <FeedbackLine result={result} />
+    </>
+  );
+}
+
+function OrderExercise({ exercise, onComplete, playSound, plain }) {
+  const [pool, setPool] = useState(() => shuffle(exercise.words));
+  const [chosen, setChosen] = useState([]);
+  const [result, setResult] = useState(null);
+  const pick = (word, idx) => {
+    if (result === "correct") return;
+    const newChosen = [...chosen, word];
+    const newPool = pool.filter((_, i) => i !== idx);
+    setChosen(newChosen);
+    setPool(newPool);
+    if (newPool.length === 0) {
+      if (plain) { setResult("correct"); playSound(Sound.correct); onComplete(true); }
+      else {
+        const correct = JSON.stringify(newChosen) === JSON.stringify(exercise.answer);
+        setResult(correct ? "correct" : "wrong");
+        if (correct) { playSound(Sound.correct); onComplete(true); } else playSound(Sound.wrong);
+      }
+    }
+  };
+  const reset = () => { setPool(shuffle(exercise.words)); setChosen([]); setResult(null); };
+  return (
+    <>
+      <p style={styles.eyebrow}>{plain ? "Ordena les paraules" : "Ordena las palabras y forma la frase"}</p>
+      <div style={styles.sentenceLine}>
+        {chosen.length === 0 && <span style={styles.sentencePlaceholder}>Toca le parole in ordine...</span>}
+        {chosen.map((w, i) => <span key={i} style={styles.chosenWord}>{w}</span>)}
+      </div>
+      <div style={styles.wordPool}>
+        {pool.map((w, idx) => <button key={idx} onClick={() => pick(w, idx)} style={styles.wordChip}>{w}</button>)}
+      </div>
+      {result === "wrong" && (<><button onClick={reset} style={styles.retryButton}>Riprova</button><p style={styles.hintLine}>Suggerimento: {exercise.answer.join(" ")}</p></>)}
+      <FeedbackLine result={result} />
+    </>
+  );
+}
+
+function MatchPairsExercise({ exercise, onComplete, playSound }) {
+  const [matched, setMatched] = useState({});
+  const [selectedText, setSelectedText] = useState(null);
+  const [wrongFlash, setWrongFlash] = useState(null);
+  const [shuffledEmojis] = useState(() => shuffle(exercise.pairs.map((p, i) => ({ emoji: p.emoji, origIdx: i }))));
+  const allMatched = Object.keys(matched).length === exercise.pairs.length;
+  useEffect(() => { if (allMatched) { playSound(Sound.correct); onComplete(true); } }, [allMatched]);
+  const clickText = (idx) => { if (matched[idx] === undefined) { setSelectedText(idx); playSound(Sound.tap); } };
+  const clickEmoji = (item) => {
+    if (selectedText === null) return;
+    if (item.origIdx === selectedText) { setMatched((m) => ({ ...m, [selectedText]: item.origIdx })); setSelectedText(null); }
+    else { setWrongFlash(item.origIdx); playSound(Sound.wrong); setTimeout(() => setWrongFlash(null), 400); }
+  };
+  return (
+    <>
+      <p style={styles.eyebrow}>{exercise.prompt}</p>
+      <div style={styles.matchGrid}>
+        <div style={styles.matchColumn}>
+          {exercise.pairs.map((p, idx) => (
+            <button key={idx} onClick={() => clickText(idx)} disabled={matched[idx] !== undefined} style={{ ...styles.matchTextCard, ...(selectedText === idx ? styles.matchSelected : {}), ...(matched[idx] !== undefined ? styles.matchDone : {}) }}>{p.text}</button>
+          ))}
+        </div>
+        <div style={styles.matchColumn}>
+          {shuffledEmojis.map((item, idx) => {
+            const isUsed = Object.values(matched).includes(item.origIdx);
+            return (<button key={idx} onClick={() => clickEmoji(item)} disabled={isUsed} style={{ ...styles.matchEmojiCard, ...(wrongFlash === item.origIdx ? styles.optionWrong : {}), ...(isUsed ? styles.matchDone : {}) }}>{item.emoji}</button>);
+          })}
+        </div>
+      </div>
+      {allMatched && <FeedbackLine result="correct" />}
+    </>
+  );
+}
+
+function FillBlankExercise({ exercise, onComplete, playSound }) {
+  const realSentences = exercise.sentences.filter((s) => !s.isExample);
+  const [answers, setAnswers] = useState(Array(realSentences.length).fill(null));
+  const [checked, setChecked] = useState(false);
+  const [usedWords, setUsedWords] = useState([]);
+  const placeWord = (sentenceIdx, word) => {
+    if (checked) return;
+    const newAnswers = [...answers];
+    newAnswers[sentenceIdx] = word;
+    setAnswers(newAnswers);
+    setUsedWords(newAnswers.filter(Boolean));
+  };
+  const checkAll = () => {
+    setChecked(true);
+    const allCorrect = realSentences.every((s, i) => answers[i] === s.blank);
+    if (allCorrect) { playSound(Sound.correct); onComplete(true); } else playSound(Sound.wrong);
+  };
+  const retry = () => { setAnswers(Array(realSentences.length).fill(null)); setUsedWords([]); setChecked(false); };
+  const availableWords = exercise.bank.filter((w) => !usedWords.includes(w));
+  return (
+    <>
+      <p style={styles.eyebrow}>Omple els buits amb les paraules que correspon</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+        {realSentences.map((s, idx) => {
+          const isCorrect = checked && answers[idx] === s.blank;
+          const isWrong = checked && answers[idx] !== s.blank;
+          return (<p key={idx} style={styles.fillSentence}>{s.before}<span style={{ ...styles.fillBlankSlot, background: isCorrect ? "#DCFCE7" : isWrong ? "#FEE2E2" : "#FAF5FF", borderColor: isCorrect ? "#16A34A" : isWrong ? "#DC2626" : "#DDD6FE" }}>{answers[idx] || "______"}</span>{s.after}</p>);
+        })}
+      </div>
+      <div style={styles.wordPool}>
+        {availableWords.map((w, idx) => (<button key={idx} onClick={() => { const nextEmptyIdx = answers.findIndex((a) => a === null); if (nextEmptyIdx !== -1) placeWord(nextEmptyIdx, w); }} style={styles.wordChip}>{w}</button>))}
+      </div>
+      {!checked && answers.every(Boolean) && <button onClick={checkAll} style={styles.checkButton}>Verifica</button>}
+      {checked && !realSentences.every((s, i) => answers[i] === s.blank) && <button onClick={retry} style={styles.retryButton}>Riprova</button>}
+      {checked && <FeedbackLine result={realSentences.every((s, i) => answers[i] === s.blank) ? "correct" : "wrong"} />}
+    </>
+  );
+}
+
+function TrueFalseImgExercise({ exercise, onComplete, playSound }) {
+  const [answers, setAnswers] = useState(Array(exercise.items.length).fill(null));
+  const [checked, setChecked] = useState(false);
+  const choose = (idx, val) => { if (checked) return; const newAnswers = [...answers]; newAnswers[idx] = val; setAnswers(newAnswers); };
+  const checkAll = () => { setChecked(true); const allCorrect = exercise.items.every((it, i) => answers[i] === it.a); if (allCorrect) { playSound(Sound.correct); onComplete(true); } else playSound(Sound.wrong); };
+  const retry = () => { setAnswers(Array(exercise.items.length).fill(null)); setChecked(false); };
+  const allAnswered = answers.every((a) => a !== null);
+  const allCorrect = checked && exercise.items.every((it, i) => answers[i] === it.a);
+  return (
+    <>
+      <p style={styles.eyebrow}>Veritat o fals</p>
+      <span style={styles.sceneEmojiBig}>{exercise.scene}</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+        {exercise.items.map((it, idx) => (
+          <div key={idx} style={styles.tfItemRow}>
+            <span style={styles.tfItemText}>{it.q}</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => choose(idx, true)} style={{ ...styles.tfSmallButton, ...(answers[idx] === true ? (checked ? (it.a === true ? styles.optionCorrect : styles.optionWrong) : styles.tfSelected) : {}) }}>✅</button>
+              <button onClick={() => choose(idx, false)} style={{ ...styles.tfSmallButton, ...(answers[idx] === false ? (checked ? (it.a === false ? styles.optionCorrect : styles.optionWrong) : styles.tfSelected) : {}) }}>❌</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {!checked && allAnswered && <button onClick={checkAll} style={styles.checkButton}>Verifica</button>}
+      {checked && !allCorrect && <button onClick={retry} style={styles.retryButton}>Riprova</button>}
+      {checked && <FeedbackLine result={allCorrect ? "correct" : "wrong"} />}
+    </>
+  );
+}
+
+function TrueFalseTextExercise({ exercise, onComplete, playSound }) {
+  const [answers, setAnswers] = useState(Array(exercise.items.length).fill(null));
+  const [checked, setChecked] = useState(false);
+  const choose = (idx, val) => { if (checked) return; const newAnswers = [...answers]; newAnswers[idx] = val; setAnswers(newAnswers); };
+  const checkAll = () => { setChecked(true); const allCorrect = exercise.items.every((it, i) => answers[i] === it.a); if (allCorrect) { playSound(Sound.correct); onComplete(true); } else playSound(Sound.wrong); };
+  const retry = () => { setAnswers(Array(exercise.items.length).fill(null)); setChecked(false); };
+  const allAnswered = answers.every((a) => a !== null);
+  const allCorrect = checked && exercise.items.every((it, i) => answers[i] === it.a);
+  return (
+    <>
+      <p style={styles.eyebrow}>Veritat o fals — {exercise.title}</p>
+      <p style={styles.storyText}>{exercise.story}</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+        {exercise.items.map((it, idx) => (
+          <div key={idx} style={styles.tfItemRow}>
+            <span style={styles.tfItemText}>{it.q}</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => choose(idx, true)} style={{ ...styles.tfSmallButton, ...(answers[idx] === true ? (checked ? (it.a === true ? styles.optionCorrect : styles.optionWrong) : styles.tfSelected) : {}) }}>✅</button>
+              <button onClick={() => choose(idx, false)} style={{ ...styles.tfSmallButton, ...(answers[idx] === false ? (checked ? (it.a === false ? styles.optionCorrect : styles.optionWrong) : styles.tfSelected) : {}) }}>❌</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {!checked && allAnswered && <button onClick={checkAll} style={styles.checkButton}>Verifica</button>}
+      {checked && !allCorrect && <button onClick={retry} style={styles.retryButton}>Riprova</button>}
+      {checked && <FeedbackLine result={allCorrect ? "correct" : "wrong"} />}
+    </>
+  );
+}
+
+function StoryMcExercise({ exercise, onComplete, playSound }) {
+  const [answers, setAnswers] = useState(Array(exercise.questions.length).fill(null));
+  const [checked, setChecked] = useState(false);
+  const [qIndex, setQIndex] = useState(0);
+  const choose = (idx) => { if (checked) return; const newAnswers = [...answers]; newAnswers[qIndex] = idx; setAnswers(newAnswers); };
+  const next = () => {
+    if (qIndex < exercise.questions.length - 1) setQIndex(qIndex + 1);
+    else { setChecked(true); const allCorrect = exercise.questions.every((q, i) => answers[i] === q.answer); if (allCorrect) { playSound(Sound.correct); onComplete(true); } else playSound(Sound.wrong); }
+  };
+  const retry = () => { setAnswers(Array(exercise.questions.length).fill(null)); setChecked(false); setQIndex(0); };
+  const allCorrect = checked && exercise.questions.every((q, i) => answers[i] === q.answer);
+  const q = exercise.questions[qIndex];
+  return (
+    <>
+      <p style={styles.eyebrow}>Lectura llarga — {exercise.title}</p>
+      <p style={styles.storyText}>{exercise.story}</p>
+      {!checked && (
+        <>
+          <p style={styles.promptText}>{qIndex + 1}. {q.q}</p>
+          <div style={styles.optionsColumn}>
+            {q.options.map((opt, idx) => (<button key={idx} onClick={() => choose(idx)} style={{ ...styles.optionButton, ...(answers[qIndex] === idx ? styles.tfSelected : {}) }}>{String.fromCharCode(65 + idx)}) {opt}</button>))}
+          </div>
+          {answers[qIndex] !== null && <button onClick={next} style={styles.checkButton}>{qIndex < exercise.questions.length - 1 ? "Prossima domanda" : "Verifica tutto"}</button>}
+        </>
+      )}
+      {checked && (
+        <>
+          {exercise.questions.map((qq, i) => (<p key={i} style={{ ...styles.fillSentence, color: answers[i] === qq.answer ? "#15803D" : "#B91C1C" }}>{i + 1}. {qq.q} → {qq.options[answers[i]]} {answers[i] === qq.answer ? "✓" : `✗ (corretta: ${qq.options[qq.answer]})`}</p>))}
+          {!allCorrect && <button onClick={retry} style={styles.retryButton}>Riprova</button>}
+          <FeedbackLine result={allCorrect ? "correct" : "wrong"} />
+        </>
+      )}
+    </>
+  );
+}
+
+function DrawInstructionsExercise({ exercise, onComplete, isDone }) {
+  const canvasRef = useRef(null);
+  const isDrawing = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const [color, setColor] = useState("#1E1B2E");
+  const [hasDrawn, setHasDrawn] = useState(false);
+  const [checkedSteps, setCheckedSteps] = useState({});
+  const [done, setDone] = useState(isDone);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * ratio;
+    canvas.height = canvas.clientHeight * ratio;
+    ctx.scale(ratio, ratio);
+  }, []);
+  const getPos = (e) => { const canvas = canvasRef.current; const rect = canvas.getBoundingClientRect(); const clientX = e.touches ? e.touches[0].clientX : e.clientX; const clientY = e.touches ? e.touches[0].clientY : e.clientY; return { x: clientX - rect.left, y: clientY - rect.top }; };
+  const startDraw = (e) => { isDrawing.current = true; lastPos.current = getPos(e); setHasDrawn(true); };
+  const draw = (e) => {
+    if (!isDrawing.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const pos = getPos(e);
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
+    lastPos.current = pos;
+  };
+  const stopDraw = () => { isDrawing.current = false; };
+  const clearCanvas = () => { const canvas = canvasRef.current; canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height); setHasDrawn(false); };
+  const toggleStep = (i) => setCheckedSteps((s) => ({ ...s, [i]: !s[i] }));
+  const palette = ["#1E1B2E", "#DC2626", "#2563EB", "#16A34A", "#FBBF24", "#C2410C", "#7C3AED"];
+  return (
+    <>
+      <p style={styles.eyebrow}>Llegeix i dibuixa el que s'indica — {exercise.title}</p>
+      <div style={styles.stepsList}>
+        {exercise.steps.map((step, i) => (
+          <button key={i} onClick={() => toggleStep(i)} style={styles.stepItem}>
+            <span style={{ ...styles.stepCheckbox, background: checkedSteps[i] ? "#16A34A" : "white" }}>{checkedSteps[i] ? "✓" : ""}</span>
+            <span style={{ ...styles.stepText, textDecoration: checkedSteps[i] ? "line-through" : "none", opacity: checkedSteps[i] ? 0.55 : 1 }}>{step}</span>
+          </button>
+        ))}
+      </div>
+      <div style={styles.canvasWrapTall}>
+        <canvas ref={canvasRef} style={styles.canvasTall} onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw} onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw} />
+      </div>
+      <div style={styles.paletteRow}>
+        {palette.map((c) => (<button key={c} onClick={() => setColor(c)} style={{ ...styles.colorDot, background: c, outline: color === c ? "3px solid #FBBF24" : "none" }} />))}
+        <button onClick={clearCanvas} style={styles.clearButton}>🧹 Pulisci</button>
+      </div>
+      <p style={styles.parentNote}>Questo esercizio lo rivede un adulto — quando hai finito tutti i passaggi, premi "Ho finito".</p>
+      {!done ? (<button onClick={() => { setDone(true); onComplete(true); }} disabled={!hasDrawn} style={{ ...styles.finishButton, opacity: hasDrawn ? 1 : 0.5 }}>Ho finito ✓</button>) : (<p style={styles.doneLabel}>✓ Fatto! Bel lavoro.</p>)}
+    </>
+  );
+}
+
+function TraceAnswerExercise({ exercise, onComplete, isDone }) {
+  const canvasRef = useRef(null);
+  const isDrawing = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const [color, setColor] = useState("#1E1B2E");
+  const [hasDrawn, setHasDrawn] = useState(false);
+  const [done, setDone] = useState(isDone);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * ratio;
+    canvas.height = canvas.clientHeight * ratio;
+    ctx.scale(ratio, ratio);
+    drawGuideLines(ctx, canvas.clientWidth, canvas.clientHeight);
+  }, []);
+  const getPos = (e) => { const canvas = canvasRef.current; const rect = canvas.getBoundingClientRect(); const clientX = e.touches ? e.touches[0].clientX : e.clientX; const clientY = e.touches ? e.touches[0].clientY : e.clientY; return { x: clientX - rect.left, y: clientY - rect.top }; };
+  const startDraw = (e) => { isDrawing.current = true; lastPos.current = getPos(e); setHasDrawn(true); };
+  const draw = (e) => {
+    if (!isDrawing.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const pos = getPos(e);
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
+    lastPos.current = pos;
+  };
+  const stopDraw = () => { isDrawing.current = false; };
+  const clearCanvas = () => { const canvas = canvasRef.current; const ctx = canvas.getContext("2d"); ctx.clearRect(0, 0, canvas.width, canvas.height); drawGuideLines(ctx, canvas.clientWidth, canvas.clientHeight); setHasDrawn(false); };
+  const palette = ["#1E1B2E", "#DC2626", "#2563EB", "#16A34A"];
+  return (
+    <>
+      <p style={styles.eyebrow}>Llegeix, escriu i respon</p>
+      <p style={styles.promptText}>{exercise.sentence}</p>
+      <div style={styles.canvasWrap}>
+        <canvas ref={canvasRef} style={styles.canvas} onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw} onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw} />
+      </div>
+      <div style={styles.paletteRow}>
+        {palette.map((c) => (<button key={c} onClick={() => setColor(c)} style={{ ...styles.colorDot, background: c, outline: color === c ? "3px solid #FBBF24" : "none" }} />))}
+        <button onClick={clearCanvas} style={styles.clearButton}>🧹 Pulisci</button>
+      </div>
+      <p style={styles.eyebrow}>Domande (rispondi a voce o per scritto sul foglio):</p>
+      <ol style={styles.questionList}>{exercise.questions.map((q, i) => <li key={i} style={styles.questionItem}>{q}</li>)}</ol>
+      <p style={styles.parentNote}>Questo esercizio lo rivede un adulto — quando hai finito, premi "Ho finito".</p>
+      {!done ? (<button onClick={() => { setDone(true); onComplete(true); }} disabled={!hasDrawn} style={{ ...styles.finishButton, opacity: hasDrawn ? 1 : 0.5 }}>Ho finito ✓</button>) : (<p style={styles.doneLabel}>✓ Fatto! Bel lavoro.</p>)}
+    </>
+  );
+}
+
+function drawGuideLines(ctx, w, h) {
+  ctx.save();
+  ctx.strokeStyle = "#E9D5FF"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+  const lineY = h * 0.4;
+  ctx.beginPath(); ctx.moveTo(10, lineY); ctx.lineTo(w - 10, lineY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(10, lineY + 26); ctx.lineTo(w - 10, lineY + 26); ctx.stroke();
+  ctx.restore();
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+function FeedbackLine({ result }) {
+  if (!result) return null;
+  return (<p style={result === "correct" ? styles.feedbackCorrect : styles.feedbackWrong}>{result === "correct" ? "🎉 Molto bene! Hai guadagnato una stella." : "Riprova 💪"}</p>);
+}
+
+function BurstCelebration({ emoji }) {
+  const particles = Array.from({ length: 14 }, (_, i) => i);
+  return (
+    <div style={styles.celebrationOverlay}>
+      {particles.map((i) => {
+        const angle = (i / particles.length) * 2 * Math.PI;
+        const dist = 90 + Math.random() * 60;
+        return (<span key={i} style={{ ...styles.particle, transform: `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px) rotate(${Math.random() * 360}deg)` }}>{emoji}</span>);
+      })}
+      <span style={styles.celebrationCenter}>⭐</span>
+    </div>
+  );
+}
+
+function LevelUpCelebration({ level }) {
+  const particles = Array.from({ length: 24 }, (_, i) => i);
+  return (
+    <div style={styles.celebrationOverlay}>
+      {particles.map((i) => {
+        const angle = (i / particles.length) * 2 * Math.PI;
+        const dist = 130 + Math.random() * 90;
+        const emoji = ["🎉", "✨", "🏆", "⭐"][i % 4];
+        return (<span key={i} style={{ ...styles.particleBig, transform: `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px) rotate(${Math.random() * 360}deg)` }}>{emoji}</span>);
+      })}
+      <div style={styles.levelUpBanner}>
+        <p style={styles.levelUpTitle}>LIVELLO {level}!</p>
+        <p style={styles.levelUpSub}>Virginia sale di livello 👑</p>
+      </div>
+    </div>
+  );
+}
+
+function FinalScreen({ stars, onReset }) {
+  return (
+    <div style={styles.finalScreen}>
+      <div style={styles.finalEmoji}>👑✨🏰</div>
+      <h1 style={styles.finalTitle}>Hai completato tutto il quaderno!</h1>
+      <p style={styles.finalSub}>Tutti gli esercizi sono finiti — bravissima, Virginia!</p>
+      <div style={styles.finalStarsPill}>
+        <span style={{ fontSize: 28 }}>⭐</span>
+        <span style={styles.finalStarsNum}>{stars}</span>
+        <span style={styles.finalStarsLabel}>stelle raccolte</span>
+      </div>
+      <button onClick={onReset} style={styles.finalResetButton}>Ricomincia il regno da capo</button>
+    </div>
+  );
+}
+
+const styles = {
+  app: { fontFamily: "Quicksand, sans-serif", minHeight: "100vh", background: "linear-gradient(180deg, #FDF4FF, #F5F3FF)", position: "relative", paddingBottom: 30 },
+  loadingScreen: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#FDF4FF", gap: 12 },
+  loadingSpinner: { fontSize: 48 },
+  appTitle: { fontFamily: "Baloo 2, sans-serif", fontSize: 20, color: "#7C3AED", textAlign: "center", margin: "14px 0 0", fontWeight: 800 },
+  topBar: { padding: "10px 18px 10px", maxWidth: 480, margin: "0 auto" },
+  topBarRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  avatarRow: { display: "flex", alignItems: "center", gap: 10 },
+  avatarCircle: { width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #C084FC, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, boxShadow: "0 4px 10px rgba(124,58,237,0.35)" },
+  greetName: { margin: 0, fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 16, color: "#1E1B2E" },
+  greetSub: { margin: 0, fontSize: 12, color: "#9D7BC4", fontWeight: 600 },
+  soundButton: { background: "white", border: "2px solid #EDE9FE", borderRadius: 12, width: 38, height: 38, fontSize: 16, cursor: "pointer" },
+  starsPill: { display: "flex", alignItems: "center", gap: 5, background: "linear-gradient(135deg, #FEF3C7, #FDE68A)", border: "2px solid #FBBF24", borderRadius: 18, padding: "5px 12px" },
+  starsPillNum: { fontFamily: "Baloo 2, sans-serif", fontWeight: 800, color: "#92660D", fontSize: 14 },
+  levelBarOuter: { height: 10, borderRadius: 6, background: "#EDE9FE", overflow: "hidden" },
+  levelBarInner: { height: "100%", background: "linear-gradient(90deg, #C084FC, #7C3AED)", borderRadius: 6, transition: "width 0.5s ease" },
+  levelBarLabel: { margin: "5px 0 0", fontSize: 11, color: "#9D7BC4", fontWeight: 600, textAlign: "right" },
+  pathStripOuter: { overflowX: "auto", padding: "6px 0 14px", WebkitOverflowScrolling: "touch" },
+  pathStripInner: { display: "flex", alignItems: "center", padding: "0 18px", minWidth: "min-content" },
+  pathNode: { width: 38, height: 38, borderRadius: "50%", border: "none", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "transform 0.2s ease" },
+  pathConnector: { width: 14, height: 4, flexShrink: 0 },
+  stage: { padding: "4px 18px 0", maxWidth: 480, margin: "0 auto" },
+  stageBanner: { borderRadius: 18, padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, marginBottom: 14, boxShadow: "0 4px 14px rgba(30,27,46,0.12)" },
+  stageBannerEmoji: { fontSize: 24 },
+  stageBannerTitle: { fontFamily: "Baloo 2, sans-serif", fontSize: 16, color: "white", flex: 1, textShadow: "0 1px 3px rgba(0,0,0,0.15)" },
+  langBadgeSmall: { fontSize: 11, fontWeight: 800, color: "white", borderRadius: 8, padding: "3px 9px" },
+  stageCard: { background: "white", borderRadius: 22, padding: "22px 18px", boxShadow: "0 10px 28px rgba(124,58,237,0.14)", border: "2px solid #EDE9FE", marginBottom: 16 },
+  eyebrow: { fontSize: 13, fontWeight: 700, color: "#9D7BC4", marginBottom: 8 },
+  promptText: { fontSize: 19, fontWeight: 700, color: "#1E1B2E", lineHeight: 1.4, marginBottom: 16 },
+  storyText: { fontSize: 15, color: "#3A3147", lineHeight: 1.6, background: "#FAF5FF", borderRadius: 14, padding: 14, marginBottom: 14, border: "1px solid #EDE9FE" },
+  sceneEmojiBig: { fontSize: 44, textAlign: "center", display: "block", marginBottom: 14, lineHeight: 1.2 },
+  optionsColumn: { display: "flex", flexDirection: "column", gap: 9, marginBottom: 10 },
+  optionButton: { textAlign: "left", padding: "13px 15px", borderRadius: 16, border: "2px solid #EDE9FE", background: "#FAF5FF", fontSize: 15, fontWeight: 600, color: "#1E1B2E", cursor: "pointer" },
+  optionCorrect: { background: "#DCFCE7", borderColor: "#16A34A", color: "#15803D" },
+  optionWrong: { background: "#FEE2E2", borderColor: "#DC2626", color: "#B91C1C" },
+  tfSelected: { background: "#EDE9FE", borderColor: "#7C3AED" },
+  emojiRow: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 },
+  emojiButtonWide: { fontSize: 26, padding: "20px 14px", borderRadius: 18, border: "2px solid #EDE9FE", background: "#FAF5FF", cursor: "pointer", textAlign: "center", fontWeight: 700, lineHeight: 1.3 },
+  sentenceLine: { minHeight: 50, border: "2px dashed #DDD6FE", borderRadius: 16, padding: 10, display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 12, alignItems: "center" },
+  sentencePlaceholder: { color: "#C4B5FD", fontSize: 13 },
+  chosenWord: { background: "#7C3AED", color: "white", fontWeight: 700, fontSize: 14, padding: "5px 11px", borderRadius: 9 },
+  wordPool: { display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 10 },
+  wordChip: { background: "#FAF5FF", border: "2px solid #EDE9FE", borderRadius: 11, padding: "7px 12px", fontSize: 14, fontWeight: 700, color: "#1E1B2E", cursor: "pointer" },
+  retryButton: { background: "#FBBF24", border: "none", borderRadius: 14, padding: "9px 15px", fontWeight: 700, color: "#1E1B2E", cursor: "pointer", marginBottom: 8, marginRight: 8 },
+  checkButton: { background: "#7C3AED", border: "none", borderRadius: 14, padding: "10px 18px", fontWeight: 700, color: "white", cursor: "pointer", marginBottom: 8 },
+  hintLine: { fontSize: 12, color: "#9D7BC4", fontStyle: "italic", marginBottom: 8 },
+  tfItemRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "#FAF5FF", borderRadius: 12, padding: "10px 12px" },
+  tfItemText: { fontSize: 14, fontWeight: 600, color: "#1E1B2E", flex: 1 },
+  tfSmallButton: { fontSize: 18, padding: "6px 11px", borderRadius: 10, border: "2px solid #EDE9FE", background: "white", cursor: "pointer" },
+  fillSentence: { fontSize: 15, color: "#1E1B2E", lineHeight: 1.7, margin: 0 },
+  fillBlankSlot: { display: "inline-block", border: "2px solid", borderRadius: 8, padding: "1px 10px", fontWeight: 800, margin: "0 3px" },
+  matchGrid: { display: "flex", gap: 10, marginBottom: 10 },
+  matchColumn: { flex: 1, display: "flex", flexDirection: "column", gap: 8 },
+  matchTextCard: { textAlign: "left", padding: "10px 11px", borderRadius: 12, border: "2px solid #EDE9FE", background: "#FAF5FF", fontSize: 12.5, fontWeight: 600, color: "#1E1B2E", cursor: "pointer", lineHeight: 1.35 },
+  matchEmojiCard: { fontSize: 34, padding: "12px", borderRadius: 12, border: "2px solid #EDE9FE", background: "#FAF5FF", cursor: "pointer", textAlign: "center" },
+  matchSelected: { background: "#EDE9FE", borderColor: "#7C3AED" },
+  matchDone: { background: "#DCFCE7", borderColor: "#16A34A", opacity: 0.85, cursor: "default" },
+  stepsList: { display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 },
+  stepItem: { display: "flex", alignItems: "flex-start", gap: 9, background: "#FAF5FF", border: "1px solid #EDE9FE", borderRadius: 11, padding: "8px 10px", cursor: "pointer", textAlign: "left" },
+  stepCheckbox: { width: 20, height: 20, borderRadius: 6, border: "2px solid #C4B5FD", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13, fontWeight: 800, marginTop: 1 },
+  stepText: { fontSize: 13.5, color: "#3A3147", lineHeight: 1.4 },
+  canvasWrap: { border: "2px solid #EDE9FE", borderRadius: 16, overflow: "hidden", marginBottom: 12, background: "#FFFDF9" },
+  canvas: { width: "100%", height: 180, display: "block", touchAction: "none" },
+  canvasWrapTall: { border: "2px solid #EDE9FE", borderRadius: 16, overflow: "hidden", marginBottom: 12, background: "#FFFDF9" },
+  canvasTall: { width: "100%", height: 280, display: "block", touchAction: "none" },
+  paletteRow: { display: "flex", gap: 7, alignItems: "center", marginBottom: 14, flexWrap: "wrap" },
+  colorDot: { width: 26, height: 26, borderRadius: "50%", border: "2px solid white", cursor: "pointer", flexShrink: 0 },
+  clearButton: { marginLeft: "auto", background: "#FAF5FF", border: "2px solid #EDE9FE", borderRadius: 12, padding: "6px 11px", fontSize: 12, fontWeight: 700, color: "#9D7BC4", cursor: "pointer" },
+  parentNote: { fontSize: 12, color: "#C4B5FD", marginBottom: 10, fontStyle: "italic" },
+  finishButton: { width: "100%", background: "#16A34A", color: "white", border: "none", borderRadius: 16, padding: "13px", fontSize: 15, fontWeight: 800, cursor: "pointer" },
+  doneLabel: { color: "#15803D", fontWeight: 800, fontSize: 15 },
+  questionList: { paddingLeft: 20, margin: "0 0 14px", display: "flex", flexDirection: "column", gap: 6 },
+  questionItem: { fontSize: 14, color: "#3A3147", lineHeight: 1.4 },
+  feedbackCorrect: { color: "#15803D", fontWeight: 800, fontSize: 15, marginTop: 6 },
+  feedbackWrong: { color: "#B91C1C", fontWeight: 700, fontSize: 14, marginTop: 6 },
+  lastNote: { textAlign: "center", color: "#7C3AED", fontWeight: 700, fontSize: 14, marginBottom: 10 },
+  resetButton: { display: "block", margin: "6px auto 0", background: "none", border: "none", color: "#C4B5FD", fontSize: 12, textDecoration: "underline", cursor: "pointer" },
+  celebrationOverlay: { position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 50, overflow: "hidden" },
+  particle: { position: "absolute", fontSize: 26 },
+  particleBig: { position: "absolute", fontSize: 32 },
+  celebrationCenter: { fontSize: 70 },
+  levelUpBanner: { background: "linear-gradient(135deg, #7C3AED, #C084FC)", borderRadius: 24, padding: "26px 34px", textAlign: "center", boxShadow: "0 12px 32px rgba(124,58,237,0.4)" },
+  levelUpTitle: { fontFamily: "Baloo 2, sans-serif", fontSize: 28, color: "white", margin: 0, textShadow: "0 2px 6px rgba(0,0,0,0.2)" },
+  levelUpSub: { color: "white", fontWeight: 600, margin: "6px 0 0", fontSize: 14 },
+  finalScreen: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", textAlign: "center" },
+  finalEmoji: { fontSize: 56, marginBottom: 14 },
+  finalTitle: { fontFamily: "Baloo 2, sans-serif", fontSize: 24, color: "#1E1B2E", margin: "0 0 8px" },
+  finalSub: { color: "#9D7BC4", fontWeight: 600, fontSize: 15, marginBottom: 24 },
+  finalStarsPill: { display: "flex", alignItems: "center", gap: 8, background: "linear-gradient(135deg, #FEF3C7, #FDE68A)", border: "2px solid #FBBF24", borderRadius: 22, padding: "12px 22px", marginBottom: 28 },
+  finalStarsNum: { fontFamily: "Baloo 2, sans-serif", fontWeight: 800, color: "#92660D", fontSize: 22 },
+  finalStarsLabel: { color: "#92660D", fontWeight: 700, fontSize: 14 },
+  finalResetButton: { background: "#7C3AED", color: "white", border: "none", borderRadius: 16, padding: "12px 24px", fontWeight: 700, fontSize: 14, cursor: "pointer" },
+};
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<IlRegnoDiVirginia />);
+</script>
+</body>
+</html>
